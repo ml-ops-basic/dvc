@@ -1,0 +1,50 @@
+# ############# First time setup ###################
+brew install dvc
+git init
+dvc init
+mkdir data
+dvc get https://github.com/iterative/dataset-registry get-started/data.xml -o data/data.xml
+dvc add data/data.xml
+git add data/.gitignore data/data.xml.dvc
+git commit -m "Add raw data"
+git commit .dvc/config -m "Configure remote storage"
+dvc push
+# ####################################################
+
+
+# Configure remote storage
+
+# ########## Setup local MinIO and as DVC Remote ##########
+# Point DVC at your MinIO endpoint
+dvc remote add -d minio s3://test-bucket/
+# S3-style path is safer with MinIO
+dvc remote modify minio use_path_style true
+dvc remote modify minio endpointurl http://localhost:9000
+dvc remote modify minio access_key_id admin
+dvc remote modify minio secret_access_key adminadmin123
+dvc remote modify minio use_ssl false   # if not using TLS
+# #########################################################
+
+
+# ########## Configure AWS profile and as DVC Remote ##########
+aws configure --profile rh-demo-aws
+dvc remote add -d rh-demo-s3 s3://jmktm-test-bucket-s3/
+# #############################################################
+
+
+# ########## Pull data from S3 into DVC ######################
+# Pull tracked data
+dvc pull -r rh-demo-s3 -v
+# ############################################################
+
+
+# ########## Push data from DVC into MinIO ###################
+dvc push -r minio -v
+# ############################################################
+
+
+# ########## One-liner “mirror” workflow. ####################
+dvc pull -r rh-demo-s3 && dvc push -r minio
+# ############################################################
+
+
