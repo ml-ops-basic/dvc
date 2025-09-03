@@ -1,14 +1,14 @@
 outs:
-- md5: cef276619ba2064cd429d9acbf94d5d3.dir
-  size: 245567857
+- md5: da19c1290a239b25eca0eefed19e6065.dir
+  size: 260012954
   hash: md5
   path: data.xml
   nfiles: 10
-md5: 15ef6cedd64bc0d309ce655442716ccd
+md5: 4d822a2210580b4465fdf0c199144220
 frozen: true
 deps:
-- md5: b3395424cd82ab6cb61456ae96eb9000.dir
-  size: 245567857
+- md5: 8a54ff946c1ffa2180cb3b3f49239d20.dir
+  size: 260012954
   nfiles: 10
   hash: md5
   path: s3://jmktm-test-bucket-s3/
