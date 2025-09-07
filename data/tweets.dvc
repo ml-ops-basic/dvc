@@ -1,14 +1,14 @@
-md5: d468dd12f3d37a2217db9b3b4d4ba5ba
+md5: ef3c67667048c9072864dadd909c3adc
 frozen: true
 deps:
-- md5: bbe5f5ce0c1df4450938fd900c4b9b31.dir
-  size: 1316147
-  nfiles: 12
+- md5: d05b095522d0487452cbc81cec68da99.dir
+  size: 1317958
+  nfiles: 14
   hash: md5
   path: s3://my-social-data/twitter/oembed/
 outs:
-- md5: 024f5765329ab68ea6201ed929414dd1.dir
-  size: 1316147
-  nfiles: 12
+- md5: 898e61a88a66310985ab430bb77034ff.dir
+  size: 1317958
+  nfiles: 14
   hash: md5
   path: tweets
