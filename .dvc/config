@@ -1,10 +1,14 @@
 [core]
-    remote = rh-demo-s3
+    remote = minio
+['remote "rh-demo-s3"']
+    url = s3://jmktm-test-bucket-s3/
+['remote "aws-s3"']
+    url = s3://my-social-data
+    profile = default
+    region = ap-southeast-2
 ['remote "minio"']
-    url = s3://test-bucket/
+    url = s3://social-data
     endpointurl = http://localhost:9000
     access_key_id = admin
     secret_access_key = adminadmin123
     use_ssl = false
-['remote "rh-demo-s3"']
-    url = s3://jmktm-test-bucket-s3/
