@@ -1,87 +1,85 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ==================== CONFIG (edit or export as env) ====================
-# Source (AWS S3) — where tweet_oembed_to_aws_s3.py wrote the data
-S3_BUCKET="${S3_BUCKET:-my-social-data}"
-S3_PREFIX="${S3_PREFIX:-twitter/oembed}"            # no leading slash; "" = bucket root
-# If you only want the tweets (and not manifests), keep as-is.
-# Manifests live under the same prefix as _manifest_*.csv/.jsonl
+SRC_BUCKET="${S3_BUCKET:-my-social-data}"
+SRC_PREFIX="${S3_PREFIX:-twitter/oembed}"
+SRC_URI="s3://${SRC_BUCKET}/${SRC_PREFIX}/"
+SRC_REMOTE="${SRC_REMOTE:-aws-s3}"
 
-# DVC remotes
-SRC_REMOTE="${SRC_REMOTE:-aws-s3}"                  # DVC remote pointing to AWS S3 (read source)
-DST_REMOTE="${DST_REMOTE:-minio}"                   # DVC remote pointing to MinIO (write destination)
+DST_REMOTE="${DST_REMOTE:-minio}"
+DST_BUCKET_URI="${DST_BUCKET_URI:-s3://social-data}"
+MINIO_ENDPOINT="${MINIO_ENDPOINT:-http://localhost:9000}"
+MINIO_USE_SSL="${MINIO_USE_SSL:-false}"
 
-# Local DVC-tracked paths (as directories)
-IMPORT_DIR_TWEETS="${IMPORT_DIR_TWEETS:-data/tweets}"   # local logical path to track tweets dir
-IMPORT_DIR_MF="${IMPORT_DIR_MF:-data/tweets-manifests}" # local logical path to track manifests dir
+FORCE_DIR_PULL="${FORCE_DIR_PULL:-true}"
+SYNC_MANIFESTS="${SYNC_MANIFESTS:-true}"
+CLEAN_LOCAL_FILES="${CLEAN_LOCAL_FILES:-true}"
+CLEAN_LOCAL_CACHE="${CLEAN_LOCAL_CACHE:-false}"
+AUTO_FIX="${AUTO_FIX:-true}"
 
-# Toggle whether to also import the manifests
-SYNC_MANIFESTS="${SYNC_MANIFESTS:-true}"                # true|false
-
-# Force refresh even if pointers unchanged (rarely needed)
-FORCE="${FORCE:-false}"                                 # true|false
-# ========================================================================
-
-if ! command -v dvc >/dev/null 2>&1; then
-  echo "❌ dvc not found on PATH"; exit 1
-fi
-
-S3_URI_TWEETS="s3://${S3_BUCKET}/${S3_PREFIX%/}/"    # directory-style import
-S3_URI_MANIFESTS="${S3_URI_TWEETS}"                  # manifests live alongside tweets
-
-echo "==> Source S3: ${S3_URI_TWEETS}"
-echo "==> DVC source remote : ${SRC_REMOTE}"
-echo "==> DVC dest   remote : ${DST_REMOTE}"
-echo "==> Import tweets into: ${IMPORT_DIR_TWEETS}"
-if [[ "${SYNC_MANIFESTS}" == "true" ]]; then
-  echo "==> Import manifests into: ${IMPORT_DIR_MF}"
-fi
-
-# Helper: import a directory (to-remote) and commit pointer if new
 import_dir() {
-  local SRC_URI="$1"       # s3://bucket/prefix/
-  local IMPORT_DIR="$2"    # local dvc logical dir
-  local LABEL="$3"         # display label
+  local SRC_URI="$1"
+  local IMPORT_DIR="$2"
+  local LABEL="$3"
 
-  echo "==> Ensuring ${LABEL} is tracked as an import from ${SRC_URI}"
-  # Ensure parent dir exists (for cleanliness; actual data stays in remotes)
+  echo "==> Tracking ${LABEL} from ${SRC_URI}"
   mkdir -p "$(dirname "${IMPORT_DIR}")"
 
-  # Create or refresh .dvc import (directory import; --to-remote avoids local download)
   if [[ ! -f "${IMPORT_DIR}.dvc" ]]; then
-    dvc import-url --to-remote "${SRC_URI}" "${IMPORT_DIR}" -r "${SRC_REMOTE}" ${FORCE:+--force}
+    if [[ "${FORCE_DIR_PULL,,}" == "true" ]]; then
+      echo "FORCE_DIR_PULL=true → standard import for ${LABEL}"
+      dvc import-url "${SRC_URI}" "${IMPORT_DIR}" -r "${SRC_REMOTE}" --force
+    else
+      if dvc import-url --to-remote "${SRC_URI}" "${IMPORT_DIR}" -r "${SRC_REMOTE}" --force; then
+        echo "✅ ${LABEL}: imported with --to-remote"
+      else
+        echo "⚠️  ${LABEL}: --to-remote failed, fallback to standard import"
+        dvc import-url "${SRC_URI}" "${IMPORT_DIR}" -r "${SRC_REMOTE}" --force
+      fi
+    fi
     git add "${IMPORT_DIR}.dvc" .gitignore || true
-    git commit -m "Import ${LABEL} from ${SRC_URI} (to-remote via ${SRC_REMOTE})" || true
+    git commit -m "Import ${LABEL} from ${SRC_URI} via ${SRC_REMOTE}" || true
   else
-    echo "==> Checking for updates in ${LABEL} (dvc update)"
-    dvc update "${IMPORT_DIR}.dvc" ${FORCE:+--force} || true
+    echo "==> Updating ${LABEL}"
+    # IMPORTANT: no --force here
+    dvc update "${IMPORT_DIR}.dvc" || true
     if ! git diff --quiet -- "${IMPORT_DIR}.dvc"; then
-      echo "==> Import updated for ${LABEL}; committing pointer change"
       git add "${IMPORT_DIR}.dvc"
       git commit -m "Update import snapshot for ${LABEL}"
     else
-      echo "==> No pointer change detected for ${LABEL} (already up to date)"
+      echo "==> No pointer change for ${LABEL} (already up to date)"
     fi
   fi
 }
 
-# 1) Import tweets directory from S3 into the DVC graph (no local data)
-import_dir "${S3_URI_TWEETS}" "${IMPORT_DIR_TWEETS}" "Tweets directory"
+echo "==> Source S3: ${SRC_URI}"
+echo "==> DVC source remote : ${SRC_REMOTE}"
+echo "==> DVC dest   remote : ${DST_REMOTE}"
 
-# 2) Optionally import manifests (same prefix; files named _manifest_*.csv/.jsonl)
-if [[ "${SYNC_MANIFESTS}" == "true" ]]; then
-  # We import the entire prefix (lightweight pointer), because DVC import-url (to-remote)
-  # doesn’t support S3-side glob filtering; that's fine for small sidecars.
-  import_dir "${S3_URI_MANIFESTS}" "${IMPORT_DIR_MF}" "Manifests directory"
+if [[ "${AUTO_FIX,,}" == "true" ]]; then
+  dvc remote modify "${DST_REMOTE}" endpointurl "${MINIO_ENDPOINT}" || true
+  dvc remote modify "${DST_REMOTE}" use_ssl "${MINIO_USE_SSL}" || true
 fi
 
-# 3) Pull objects from the source S3 remote into local cache (metadata only with to-remote)
+import_dir "${SRC_URI}" "data/tweets" "Tweets directory"
+if [[ "${SYNC_MANIFESTS,,}" == "true" ]]; then
+  import_dir "${SRC_URI}" "data/tweets-manifests" "Manifests directory"
+fi
+
 echo "==> Fetching objects from source remote '${SRC_REMOTE}' into cache"
 dvc fetch -r "${SRC_REMOTE}" -v
 
-# 4) Push objects to MinIO remote
 echo "==> Pushing objects to destination remote '${DST_REMOTE}'"
 dvc push -r "${DST_REMOTE}" -v
 
-echo "==> Done. MinIO is in sync with the latest snapshot from ${S3_URI_TWEETS}"
+if [[ "${CLEAN_LOCAL_FILES,,}" == "true" ]]; then
+  echo "==> Removing local workspace files"
+  rm -rf data/tweets data/tweets-manifests || true
+fi
+
+if [[ "${CLEAN_LOCAL_CACHE,,}" == "true" ]]; then
+  echo "==> Clearing local DVC cache"
+  rm -rf .dvc/cache/*
+fi
+
+echo "==> Done. MinIO is in sync with the latest snapshot from ${SRC_URI}"
